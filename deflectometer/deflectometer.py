@@ -3,7 +3,7 @@ Deflectometer main File
 """
 
 import numpy as np
-import os
+import os, sys
 import cv2 as cv
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -27,7 +27,7 @@ class Camera():
     def __init__(self, camID=0, dist_map=False):
         self.camID = camID
         self.cam = cv.VideoCapture(camID)
-        self.pol_cam_meta()
+        self.poll_cam_meta()
         if dist_map is not False:
             self.dist_map = self.distortion_map(dist_map)
         else:
@@ -90,17 +90,6 @@ def create_window():
     # scan_mng.full_screen_toggle()
     scanner_size = scanner_fig.get_size_inches() * scanner_fig.dpi
     return scanner_fig, scanner_size
-
-
-# def start_cam(camID=0):
-#     cam_obj = cv.VideoCapture(camID)
-#     # ret, frame = cam_obj.read()
-#     # Our operations on the frame come here
-#     # gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
-#     # Display the resulting frame
-#     # cv.imshow('frame',gray)
-#     return cam_obj
-
 
 def calc_separation(fig, ar, cam, frame, lit_pix=(0, 0), screen_cam=(-150, 0), part_dist=1000):
     """units are in mm
@@ -206,7 +195,20 @@ def find_in_frame(cam, frame, threshold=150):
     return angle_ar_x, angle_ar_y
 
 def combine_maps(ar1, ar2=None):
-    """combines two image arrays into single output. Indicies that have non-zero values are averaged"""
+    """
+    Combines two image arrays into single output. Indicies that have non-zero values are averaged
+    
+    Parameters
+    ----------
+    ar1 : ndarray(int) -- 2D image array (gray scale)
+    
+    ar2 : ndarray(int) -- 2D image array (gray scale)
+    
+    Returns
+    ----------
+    
+    ndarray (int)  -- 2d image (gray scale) combined array 
+    """
     if ar2 is None:
         return ar1
     else:
@@ -214,6 +216,37 @@ def combine_maps(ar1, ar2=None):
         outarray = ar1 + ar2
         outarray[val_mask] /= 2
         return outarray
+
+def windowsetup(fig, monitor=1):
+    """
+    Sets up Scanning Window and places it in full screen mode in monitor
+    
+    Parameters
+    ----------
+    fig : matplotlib.pyplot.figure
+    
+    monitor : int  -- Screen ID value passed to QT
+    
+    Returns
+    ---------
+    None
+    """
+    
+    app = QtWidgets.QDesktopWidget()
+    screenlocation = app.screenGeometry(monitor)
+    plt.figure(fig.number)
+    curax = fig.gca()
+    curax.set_axis_off()
+    try:
+        win = fig.canvas.manager.window
+    except AttributeError:
+        win = fig.canvas.window()
+    toolbar = win.findChild(QtWidgets.QToolBar)
+    toolbar.setVisible(False)
+    
+    win.showFullScreen()
+    win.move(screenlocation.x(), screenlocation.y())
+    return win
 
 def scranner(screen_ar, barsize=10, dist=1000, camh=150):
     """ Primary function for capturing deflectometer data"""
@@ -310,9 +343,50 @@ def scranner(screen_ar, barsize=10, dist=1000, camh=150):
 
     return x_slopemap, y_slopemap
 
+def alignment_mode(screen):
+    fig = plt.figure(facecolor='black')
+    cam = Camera(camID=0)
+    windowsetup(fig)
+    ax = fig.gca()
+    align_ar = np.ones((51,51)) * 255
+    img = ax.imshow(align_ar, vmin=0, vmax=255, cmap='gray')
+    #import pdb; pdb.set_trace()
+    print("Starting Coarse Alignment -- press Q to continue")
+    while(True):
+        # Capture frame-by-frame
+        ret, frame = cam.cam.read()
+        # Our operations on the frame come here
+        gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+        # Display the resulting frame
+        cv.imshow('frame',gray)
+        if cv.waitKey(1) & 0xFF == ord('q'):
+            break
+    
+    align_ar = np.zeros((51,51))
+    align_ar[26,26] = 255
+    img.set_data(align_ar)
+    fig.canvas.draw()
+    print("Starting Fine Alignment -- press Q to continue")
+    
+    while(True):
+        # Capture frame-by-frame
+        ret, frame = cam.cam.read()
+        # Our operations on the frame come here
+        gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+        # Display the resulting frame
+        cv.imshow('frame',gray)
+        if cv.waitKey(1) & 0xFF == ord('q'):
+            break
+    # When everything done, release the capture
+    cam.cam.release()
+    cv.destroyAllWindows()
+    # Reset screen to original state
+    plt.close(fig)
+
 if __name__ == "__main__":
     # fig, scansize = create_window()
     screen = np.zeros((48, 64))
+    #alignment_mode(screen)
     img = scranner(screen, barsize=1)
     dir = r'/usr/share/opencv/samples/data'
     # img = cv.imread(os.path.join(dir, 'messi5.jpg'), 0)
