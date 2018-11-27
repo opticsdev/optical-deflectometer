@@ -24,14 +24,16 @@ mpl.rc('axes.spines', top=False, bottom=False, left=False, right=False)
 class Camera():
     """basic camera data"""
 
-    def __init__(self, camID=0, dist_map=False):
+    def __init__(self, camID=0, ffov=30, dist_map=False):
         self.camID = camID
         self.cam = cv.VideoCapture(camID)
         self.poll_cam_meta()
+        self.ffov = ffov
         if dist_map is not False:
             self.dist_map = self.distortion_map(dist_map)
         else:
             self.dist_map = np.ones(self.shape)
+        self.ifov_calc(ffov=ffov)
         self.calc_noise()
 
     def poll_cam_meta(self):
@@ -47,8 +49,9 @@ class Camera():
     def distortion_map(self, dmap):
         pass
 
-    def ifov(self, ffov=30, orientation='width'):
+    def ifov_calc(self, ffov=30, orientation='width'):
         """ function to add ifov to cam object. Needed to cal part location"""
+        
         ffov *= np.pi / 180  # convert to radians
         self.poll_cam_meta()
         if orientation == 'width':
@@ -56,7 +59,7 @@ class Camera():
         elif orientation == 'height':
             self.ifov = ffov / self.shape[0]
         xang = (np.arange(0, self.shape[1]) - self.shape[1] / 2) * self.ifov
-        yang = (np.linspace(0, self.shape[0]) - self.shape[1] / 2) * self.ifov
+        yang = (np.arange(0, self.shape[0]) - self.shape[1] / 2) * self.ifov
         self.fov_array = np.meshgrid(xang, yang)
 
     def calc_noise(self, nframes=30):
@@ -91,7 +94,7 @@ def create_window():
     scanner_size = scanner_fig.get_size_inches() * scanner_fig.dpi
     return scanner_fig, scanner_size
 
-def calc_separation(fig, ar, cam, frame, lit_pix=(0, 0), screen_cam=(-150, 0), part_dist=1000):
+def calc_separation(fig, ar, cam, frame, lit_pix=(0, 0), screen_cam=(-150, 0), part_dist=1000, threshold=100):
     """units are in mm
 
     Two lateral separations are required for the deflectomer (lit Screen-lit part, lit part-camera)
@@ -141,7 +144,7 @@ def calc_separation(fig, ar, cam, frame, lit_pix=(0, 0), screen_cam=(-150, 0), p
     screencamx_sep = (lit_pix[1] - centerx) / ar.shape[1] * screen_size[0] + screen_cam[1]
     screencamy_sep = (centery - lit_pix[0]) / ar.shape[0] * screen_size[1] + screen_cam[0]
 
-    frame_x, frame_y = find_in_frame(cam, frame, threshold=150)
+    frame_x, frame_y = find_in_frame(cam, frame, threshold=threshold)
 
     # Calculate xpc and xsp for the X and Y vectors
     camx_sep = np.tan(frame_x) * part_dist
@@ -153,13 +156,13 @@ def calc_separation(fig, ar, cam, frame, lit_pix=(0, 0), screen_cam=(-150, 0), p
     return x_sep, y_sep
 
 
-def slope_val(pixloc, partloc, camloc, zscreen_part, zcam_part, partsag=0):
+def slope_val(cam_sep, screen_sep, zscreen_part, zcam_part, partsag=0):
     """ Simplified slope vals... needs update for fast parts!"""
 
     # dscreen_part = np.sqrt(zscreen_part**2 + (pixloc-partloc)**2)
     # dcam_part = np.sqrt(zscreen_part**2 + (camloc-partloc)**2)
-    t1 = (partloc - pixloc) / zscreen_part
-    t2 = (partloc - camloc) / zcam_part
+    t1 = (cam_sep) / zcam_part
+    t2 = (screen_sep) / zscreen_part
     t3 = 1
     t4 = 1
     return (t1 + t2) / (t3 + t4)
@@ -246,13 +249,14 @@ def windowsetup(fig, monitor=1):
     
     win.showFullScreen()
     win.move(screenlocation.x(), screenlocation.y())
+    win.raise_()
     return win
 
 def scranner(screen_ar, barsize=10, dist=1000, camh=150):
     """ Primary function for capturing deflectometer data"""
     camfig = plt.figure()
     mgr = plt.get_current_fig_manager()
-    mgr.window.setGeometry(900, 30, 320, 240)
+    mgr.window.setGeometry(300, 30, 1280, 1040)
     camax = plt.gca()
     # plt.axes([0, 0, 1, 1], frameon=False)
     camax.set_axis_off()
@@ -262,37 +266,42 @@ def scranner(screen_ar, barsize=10, dist=1000, camh=150):
         win = camfig.canvas.window()
     toolbar = win.findChild(QtWidgets.QToolBar)
     toolbar.setVisible(False)
-
+    mgr.window.raise_()
     fig = plt.figure(facecolor='black')
     mgr = plt.get_current_fig_manager()
-    mgr.window.setGeometry(10, 30, 650, 510)
-    try:
-        win = fig.canvas.manager.window
-    except AttributeError:
-        win = fig.canvas.window()
-    toolbar = win.findChild(QtWidgets.QToolBar)
-    toolbar.setVisible(False)
+    windowsetup(fig)
+# =============================================================================
+#     mgr.window.setGeometry(10, 30, 650, 510)
+#     try:
+#         win = fig.canvas.manager.window
+#     except AttributeError:
+#         win = fig.canvas.window()
+#     toolbar = win.findChild(QtWidgets.QToolBar)
+#     toolbar.setVisible(False)
+# =============================================================================
 
     plt.axes([0, 0, 1, 1], frameon=False)
     ax = plt.gca()
 
     # start cam
     cam_obj = Camera(camID=0)
-    ret, background = cam_obj.cam.read()
-    bkg_gray = cv.cvtColor(background, cv.COLOR_BGR2GRAY)
-    camimg = camax.imshow(bkg_gray, cmap='gray')
+
+    threshold = 0
     # setup and plot initial array
     # screen_ar[0, :] = 255
-    screen_ar[0, :] = 0
+    #screen_ar[0, :] = 0
     img = ax.imshow(screen_ar, cmap='gray', vmin=0, vmax=255)
-
+    plt.pause(0.01)
+    ret, background = cam_obj.cam.read()
+    bkg_gray = cv.cvtColor(background, cv.COLOR_BGR2GRAY).astype(np.int16)
+    camimg = camax.imshow(bkg_gray, cmap='gray')
+    
     # setup output array with same resolution as camera
     x_slopemap = np.zeros(cam_obj.shape)
     y_slopemap = np.zeros(cam_obj.shape)
-    # test variable. Remove cam_frame for real use
-    cam_frame = x_slopemap.copy()
+
     for cdx in range(0, screen_ar.shape[1], barsize):
-        # import pdb; pdb.set_trace()
+        
 
         if cdx >= barsize:
             screen_ar[:, cdx - barsize] = 0
@@ -301,45 +310,51 @@ def scranner(screen_ar, barsize=10, dist=1000, camh=150):
         plt.pause(0.001)
         ret, frame = cam_obj.cam.read()
         # Our operations on the frame come here
-        gray = np.abs(cv.cvtColor(frame, cv.COLOR_BGR2GRAY) - bkg_gray)
+        gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY).astype(np.int16) - bkg_gray
+
+        #gray[gray < threshold] = 0
         # Display the resulting frame - background frame
         camimg.set_data(gray)
         camfig.canvas.draw()
         # plt.pause(0.001)
 
         # calculate separation value for X
-        xsep, _ = calc_separation(fig, screen_ar, lit_x=cdx, lit_y=0, cam_x=0, cam_y=camh, )
-        # import pdb; pdb.set_trace()
-        x_slopemap_frame = pix_slope(slope=calc_slope(xsep, dist=dist), frame=gray)
+        #
+        if cdx == 32:
+            import pdb; pdb.set_trace()
+        xsep, _ = calc_separation(fig, screen_ar, cam_obj, frame=gray, lit_pix=(cdx, 0), screen_cam=(camh, 0), part_dist=dist, threshold=threshold)
+        x_slopemap_frame = slope_val(xsep[0], xsep[1], zscreen_part=dist, zcam_part=dist, partsag=0)
         x_slopemap = combine_maps(x_slopemap, x_slopemap_frame)
-        print(cdx, ' - ', xsep)
+        #print(cdx, ' - ', xsep)
 
     screen_ar[:, cdx] = 0
 
-    for rdy in range(0, screen_ar.shape[0], barsize):
-        if rdy >= barsize:
-            screen_ar[rdy - barsize:rdy, :] = 0
-        screen_ar[rdy, :] = 255
-        img.set_data(screen_ar)
-        plt.pause(0.001)
+# =============================================================================
+#     for rdy in range(0, screen_ar.shape[0], barsize):
+#         if rdy >= barsize:
+#             screen_ar[rdy - barsize:rdy, :] = 0
+#         screen_ar[rdy, :] = 255
+#         img.set_data(screen_ar)
+#         plt.pause(0.001)
+# 
+#         ret, frame = cam_obj.cam.read()
+#         # Our operations on the frame come here
+#         gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY).astype(np.int16) - bkg_gray
+#         # Display the resulting frame - background frame
+#         camimg.set_data(gray)
+#         camfig.canvas.draw()
+# 
+#         _, ysep = calc_separation(fig, screen_ar, cam_obj, frame=gray, lit_pix=(0,rdy), screen_cam=(camh, 0), part_dist=dist, threshold=threshold)
+#         y_slopemap_frame = slope_val(ysep[0], ysep[1], zscreen_part=dist, zcam_part=dist, partsag=0)
+#         y_slopemap = combine_maps(y_slopemap, y_slopemap_frame)
+# =============================================================================
 
-        ret, frame = cam.read()
-        # Our operations on the frame come here
-        gray = np.abs(cv.cvtColor(frame, cv.COLOR_BGR2GRAY) - bkg_gray)
-        # Display the resulting frame - background frame
-        camimg.set_data(gray)
-        camfig.canvas.draw()
-
-        _, ysep = calc_separation(fig, screen_ar, lit_x=0, lit_y=rdy, cam_x=0, cam_y=camh, )
-        y_slopemap_frame = pix_slope(slope=calc_slope(ysep, dist=dist), frame=gray)
-        y_slopemap = combine_maps(y_slopemap, y_slopemap_frame)
-
-        print(rdy, ' - ', ysep)
+        #print(rdy, ' - ', ysep)
 
     # blank screen
     screen_ar = np.zeros(screen_ar.shape)
-    plt.imshow(screen_ar, cmap='gray')
-    cam.release()
+    img.set_data(screen_ar)
+    cam_obj.cam.release()
 
     return x_slopemap, y_slopemap
 
@@ -386,7 +401,7 @@ def alignment_mode(screen):
 if __name__ == "__main__":
     # fig, scansize = create_window()
     screen = np.zeros((48, 64))
-    #alignment_mode(screen)
+    # alignment_mode(screen)
     img = scranner(screen, barsize=1)
     dir = r'/usr/share/opencv/samples/data'
     # img = cv.imread(os.path.join(dir, 'messi5.jpg'), 0)
@@ -394,8 +409,9 @@ if __name__ == "__main__":
     # cv.imshow('image', img)
     # cv.waitKey(0)
     # cv.destroyAllWindows()
-    fig, (ax1, ax2) = plt.subplots(1,2)
-    ax1.imshow(img[0])
+    figout, (ax1, ax2) = plt.subplots(1,2)
+    data=ax1.imshow(img[0])
     ax1.set_title('X Slope')
+    plt.colorbar(data,cax=ax1)
     ax2.imshow(img[1])
     ax2.set_title('Y Slope')
