@@ -22,7 +22,7 @@ setup(
     },
 
     # metadata to display on PyPI
-    author="J. Johnson",
+    author="James Johnson",
     author_email="opticsdeveloper@gmail.com",
     description="Open Source Optical Deflectometry collection, processing, and reconstruction",
     license="LGPL v3",

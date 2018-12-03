@@ -22,7 +22,31 @@ mpl.rc('axes.spines', top=False, bottom=False, left=False, right=False)
 
 
 class Camera():
-    """basic camera data"""
+    """Container for camera properties
+
+    Initializes with following parameters
+
+    Parameters
+    ------------
+
+    camID : int  -- value corresponding to which camera openCV conncets to for collecting data
+
+    ffov : float -- full lateral field of view of the camera
+
+    dist_map : ndarray (float) -- array of same size as camera format containing normalized offset values (paraxial = 1.0) created by the camera lens
+
+    Initialization also calls the following functions to add additional properties:
+
+    Functions
+    ------------
+
+    poll_cam_meta() : void -- retrieves current camera properties and settings including format, frame rate, and gain/exposure
+
+    ifov_calc(ffov) : void -- calculates IFOV of a paraxial pixel and the X/Y FOV of each pixel in the array
+
+    calc_noise() : void -- calculates background (ideally dark) noise of detector
+
+    """
 
     def __init__(self, camID=0, ffov=30, dist_map=False):
         self.camID = camID
@@ -37,7 +61,24 @@ class Camera():
         self.calc_noise()
 
     def poll_cam_meta(self):
-        """Returns a dict of the current base camera properties"""
+        """Adds properties to Camera object relating to hardware values of the camera
+
+        Properties
+        -----------
+
+        shape : ndarray(int)  -- format of the camera in C-type format (col/row)
+
+        fps : float -- current frames per second
+
+        brightness : float -- brightness setting of camera
+
+        gain : float -- gain multiplier of camera
+
+        exposure : float -- exposure setting of camera
+
+        frame_count : int -- total number of frames collected
+
+        """
 
         self.shape = (int(self.cam.get(cv.CAP_PROP_FRAME_HEIGHT)), int(self.cam.get(cv.CAP_PROP_FRAME_WIDTH)))
         self.fps = self.cam.get(cv.CAP_PROP_FPS)
@@ -47,11 +88,13 @@ class Camera():
         self.frame_count = self.cam.get(cv.CAP_PROP_FRAME_COUNT)
 
     def distortion_map(self, dmap):
+        """curerntly not implemented"""
+
         pass
 
     def ifov_calc(self, ffov=30, orientation='width'):
         """ function to add ifov to cam object. Needed to cal part location"""
-        
+
         ffov *= np.pi / 180  # convert to radians
         self.poll_cam_meta()
         if orientation == 'width':
@@ -200,17 +243,18 @@ def find_in_frame(cam, frame, threshold=150):
 def combine_maps(ar1, ar2=None):
     """
     Combines two image arrays into single output. Indicies that have non-zero values are averaged
-    
+
     Parameters
     ----------
     ar1 : ndarray(int) -- 2D image array (gray scale)
-    
+
     ar2 : ndarray(int) -- 2D image array (gray scale)
-    
+
     Returns
     ----------
-    
-    ndarray (int)  -- 2d image (gray scale) combined array 
+
+    ndarray (int)  -- 2d image (gray scale) combined array
+
     """
     if ar2 is None:
         return ar1
@@ -223,18 +267,18 @@ def combine_maps(ar1, ar2=None):
 def windowsetup(fig, monitor=1):
     """
     Sets up Scanning Window and places it in full screen mode in monitor
-    
+
     Parameters
     ----------
     fig : matplotlib.pyplot.figure
-    
+
     monitor : int  -- Screen ID value passed to QT
-    
+
     Returns
     ---------
     None
     """
-    
+
     app = QtWidgets.QDesktopWidget()
     screenlocation = app.screenGeometry(monitor)
     plt.figure(fig.number)
@@ -246,7 +290,7 @@ def windowsetup(fig, monitor=1):
         win = fig.canvas.window()
     toolbar = win.findChild(QtWidgets.QToolBar)
     toolbar.setVisible(False)
-    
+
     win.showFullScreen()
     win.move(screenlocation.x(), screenlocation.y())
     win.raise_()
@@ -295,13 +339,13 @@ def scranner(screen_ar, barsize=10, dist=1000, camh=150):
     ret, background = cam_obj.cam.read()
     bkg_gray = cv.cvtColor(background, cv.COLOR_BGR2GRAY).astype(np.int16)
     camimg = camax.imshow(bkg_gray, cmap='gray')
-    
+
     # setup output array with same resolution as camera
     x_slopemap = np.zeros(cam_obj.shape)
     y_slopemap = np.zeros(cam_obj.shape)
 
     for cdx in range(0, screen_ar.shape[1], barsize):
-        
+
 
         if cdx >= barsize:
             screen_ar[:, cdx - barsize] = 0
@@ -336,14 +380,14 @@ def scranner(screen_ar, barsize=10, dist=1000, camh=150):
 #         screen_ar[rdy, :] = 255
 #         img.set_data(screen_ar)
 #         plt.pause(0.001)
-# 
+#
 #         ret, frame = cam_obj.cam.read()
 #         # Our operations on the frame come here
 #         gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY).astype(np.int16) - bkg_gray
 #         # Display the resulting frame - background frame
 #         camimg.set_data(gray)
 #         camfig.canvas.draw()
-# 
+#
 #         _, ysep = calc_separation(fig, screen_ar, cam_obj, frame=gray, lit_pix=(0,rdy), screen_cam=(camh, 0), part_dist=dist, threshold=threshold)
 #         y_slopemap_frame = slope_val(ysep[0], ysep[1], zscreen_part=dist, zcam_part=dist, partsag=0)
 #         y_slopemap = combine_maps(y_slopemap, y_slopemap_frame)
@@ -376,13 +420,13 @@ def alignment_mode(screen):
         cv.imshow('frame',gray)
         if cv.waitKey(1) & 0xFF == ord('q'):
             break
-    
+
     align_ar = np.zeros((51,51))
     align_ar[26,26] = 255
     img.set_data(align_ar)
     fig.canvas.draw()
     print("Starting Fine Alignment -- press Q to continue")
-    
+
     while(True):
         # Capture frame-by-frame
         ret, frame = cam.cam.read()
